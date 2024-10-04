@@ -55,7 +55,6 @@ bash discrete_supercom_train_agenteovl_alfworld_temp_0.sh
   * fd_path
   * problem_path
   * num_prob / max_prob (for num of solutions)
-
 * Run:
 ```
 python extract_pddl_solution.py
@@ -63,15 +62,13 @@ python extract_pddl_solution.py
 
 ## 2) convert_pddl_to_nl.py
 * Edit the `problem_path`
-
 * Run (NL outputs located in the same path as `problem_path`):
 ```
 python convert_pddl_to_nl.py
 ```
 
 ## 3) verify_nl_solution.py
-* Edit the `nl_solution_path` (same as problem_path) if necessary
-
+* Edit the `nl_solution_path` if necessary
 * Run:
 ```
 python verify_nl_solution.py
