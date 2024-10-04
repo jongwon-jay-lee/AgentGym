@@ -2,12 +2,12 @@
 
 ## 1) Prepare 3 files 
 * Script: `agentenv/examples/agentevol/discrete_supercom_train_agenteovl_alfworld_temp_0.sh`
-1. Train `alfworld_train.json` (from [AgentGym/AgentTraj-L](https://huggingface.co/datasets/AgentGym/AgentTraj-L))
-2. Test `alfworld_test.json` (from [AgentGym/AgentEval](https://huggingface.co/datasets/AgentGym/AgentEval))
-3. Inference `alfworld.json` (currently same amount as training but empty by code below);
+1. Train (`alfworld_train.json`) from [AgentGym/AgentTraj-L](https://huggingface.co/datasets/AgentGym/AgentTraj-L)
+2. Test (`alfworld_test.json`) from [AgentGym/AgentEval](https://huggingface.co/datasets/AgentGym/AgentEval)
+3. Inference (`alfworld.json`), currently same amount as training but empty by code below:
 ```
 import json
-train_len = 2420 # train amount)
+train_len = 2420 # num of train
 
 train_lst = []
 for idx in range(train_len):
