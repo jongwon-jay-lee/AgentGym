@@ -1,6 +1,6 @@
 numgpu=8
 
-exp_name="agentevol_alfworld_07"
+exp_name="agentevol_alfworld_00"
 
 n_epochs='1' 
 
@@ -10,17 +10,17 @@ main_process_port='8849'
 config_file="/home/sr5/jay722.lee/.cache/huggingface/accelerate/default_config.yaml"
 
 # training arguments
-iter_data_path='/home/sr5/cara/jay722.lee/ckpt/alfworld_evol_07/iter_data/iter_data_alfworld'
+iter_data_path='/home/sr5/cara/jay722.lee/ckpt/alfworld_evol_00/iter_data/iter_data_alfworld'
 
 # agent model
 # model_train_path="/home/sr5/cara/j0.son/checkpoint/Llama-2-7b-chat-hf"
 
-prev_iter=5
-start_iter=6
-end_iter=7
-model_train_path="/home/sr5/cara/jay722.lee/ckpt/alfworld_evol_07/outputs/${exp_name}/iter_${prev_iter}/model"
+prev_iter=6
+start_iter=7
+end_iter=8
+model_train_path="/home/sr5/cara/jay722.lee/ckpt/alfworld_evol_00/outputs/${exp_name}/iter_${prev_iter}/model"
 # model_train_path="/home/sr5/cara/j0.son/checkpoint/Llama-2-7b-chat-hf"
-output_dir="/home/sr5/cara/jay722.lee/ckpt/alfworld_evol_07/outputs/${exp_name}"
+output_dir="/home/sr5/cara/jay722.lee/ckpt/alfworld_evol_00/outputs/${exp_name}"
 
 batch_size="2"
 eval_batch_size="1"
@@ -57,8 +57,7 @@ test_file_list=("PATH/TO/webshop_test.json" "/home/sr5/cara/jay722.lee/data/agen
 
 # inference parameters
 do_sample="True"
-# temperature="1.2"
-temperature="0.7"
+temperature="0.0001"
 sample_num="2"
 inference_file_list=("webshop.json" "alfworld.json" "textcraft.json" "sciworld.json")
 max_round_list=("6" "30" "20" "30")

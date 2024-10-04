@@ -81,6 +81,12 @@ class AlfWorldEnvClient(BaseEnvClient):
         print(f"Action: {action}")
         response = self._post("step", {"action": action})
         print(response)
+        
+        assert "observation" in response, f"\n\n[NO OBSERVATION][{response}]\n\n"
+        assert "available_actions" in response, f"\n\n[NO AVAIL_ACTIONS][{response}]\n\n"
+        assert "reward" in response, f"\n\n[NO REWARD][{response}]\n\n"
+        assert "done" in response, f"\n\n[NO DONE][{response}]\n\n"
+
         self.info = {
             "observation": response["observation"],
             "available_actions": response["available_actions"],
@@ -95,6 +101,10 @@ class AlfWorldEnvClient(BaseEnvClient):
 
     def reset(self, game: int, world_type: str = "Text") -> dict[str, Any]:
         response = self._post("reset", {"game": game, "world_type": world_type})
+        
+        assert "observation" in response, f"\n\n[NO OBSERVATION][{game}][{response}]\n\n"
+        assert "available_actions" in response, f"\n\n[NO AVAIL_ACTIONS][{game}][{response}]\n\n"
+
         self.info = {
             "observation": response["observation"],
             "available_actions": response["available_actions"],
