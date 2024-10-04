@@ -42,37 +42,37 @@ bash discrete_supercom_train_agenteovl_alfworld_temp_0.sh
 ```
 * The script has 5 steps:
   * Train a model
-   * Eval on test dataset
-   * Inference on train dataset
-   * Filter inference results (keep only correct ones)
-   * Update model path
+  * Eval on test dataset
+  * Inference on train dataset
+  * Filter inference results (keep only correct ones)
+  * Update model path
 
 
 # PDDL Solution 
 ## 1) extract_pddl_solution.py
-Edit the path:
-* solution_path
-* fd_path
-* problem_path
-* num_prob / max_prob (for num of solutions)
+* Edit the path:
+  * solution_path
+  * fd_path
+  * problem_path
+  * num_prob / max_prob (for num of solutions)
 
-Run:
+* Run:
 ```
 python extract_pddl_solution.py
 ```
 
 ## 2) convert_pddl_to_nl.py
-Edit the `problem_path`
+* Edit the `problem_path`
 
-Run (NL outputs located in the same path as problem path):
+* Run (NL outputs located in the same path as `problem_path`):
 ```
 python convert_pddl_to_nl.py
 ```
 
 ## 3) verify_nl_solution.py
-Edit the `nl_solution_path` (same as problem_path) if necessary
+* Edit the `nl_solution_path` (same as problem_path) if necessary
 
-Run:
+* Run:
 ```
 python verify_nl_solution.py
 ```
