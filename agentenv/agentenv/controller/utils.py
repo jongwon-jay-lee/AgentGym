@@ -37,6 +37,7 @@ class BaseAgentEnvController:
                 idxs,
                 generation_config,
                 max_rounds,
+                self.accelerator,
             )
         elif isinstance(idxs[0], Sequence):
             for idx, task in enumerate(self.tasks):

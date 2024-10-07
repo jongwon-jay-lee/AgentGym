@@ -51,6 +51,8 @@ class EvalArguments:
     env_server_base: str = field(default=None)
     data_len: int = field(default=200)
     timeout: int = field(default=2400)
+    # Preemption Mode
+    use_preemption: bool = field(default=False, metadata={"help": "Use Preemption to eval in multi-process."})
 
 
 def main():
@@ -62,6 +64,13 @@ def main():
         args.model_path, low_cpu_mem_usage=True, torch_dtype=torch.bfloat16
     )
     model.gradient_checkpointing_enable()
+
+    # TODO: https://discuss.huggingface.co/t/llama2-pad-token-for-batched-inference/48020
+    if tokenizer.pad_token_id is None:
+        tokenizer.pad_token = tokenizer.bos_token
+        tokenizer.pad_token_id = tokenizer.bos_token_id
+        model.config.pad_token_id = model.config.bos_token_id
+
 
     # task_name - task dict
     task_classes = {
@@ -96,11 +105,11 @@ def main():
 
     distributed_evaluator = DistributedEvaluator(
         Agent(model, tokenizer),
-        [task_class(client_args=env_args, n_clients=1)],
+        [task_class(client_args=env_args, n_clients=args.eval_batch_size)],
         args,
     )
     start_time = time.time()
-    distributed_evaluator.generate()
+    distributed_evaluator.generate(use_preemption=args.use_preemption)
     process_time = time.time() - start_time
     print(f"==== {process_time} seconds ====")
 

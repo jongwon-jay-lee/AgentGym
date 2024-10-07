@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping, Optional, Sequence, TypedDict
 
+import numpy as np
 import torch
 from torch.nn.parallel import DistributedDataParallel
 from transformers import GenerationConfig, PreTrainedModel, PreTrainedTokenizerBase
@@ -129,7 +130,7 @@ class BaseTask:
         while not done:
             input_length = len(conversation_tokenized["input_ids"])
             # if input_length exceeds 4096, break
-            if input_length >= 4096:
+            if input_length >= model.config.max_length:
                 break
             output = model.generate(
                 torch.tensor(
@@ -191,6 +192,194 @@ class BaseTask:
             action_mask=conversation_tokenized["action_mask"],
         )
 
+    def impl_generate_experience_batch(
+        self,
+        model: PreTrainedModel,
+        tokenizer: PreTrainedTokenizerBase,
+        clients: BaseEnvClient,
+        idxs: list[int],
+        generation_config: Optional[GenerationConfig] = None,
+        max_rounds: Optional[int] = None,
+        accelerator =None
+    ):
+        tokenizer.padding_side = "left"
+        # check the pad_token exists or not
+        if tokenizer.pad_token_id is None:
+            print("Use EOS token as PAD")
+            tokenizer.pad_token = tokenizer.eos_token
+            tokenizer.pad_token_id = tokenizer.eos_token_id
+            model.config.pad_token_id = model.config.eos_token_id
+
+        bsz = len(idxs)
+        
+        curr_process_idx = accelerator.process_index
+
+        client_start_idx = 0
+        client_end_idx = bsz
+        
+        # Reset all envs, rewards, and dones
+        states = []
+        for c_idx in range(client_start_idx, client_end_idx):
+            clients[c_idx].reset(idxs[c_idx - client_start_idx])
+            state = clients[c_idx].observe()
+            states.append(state)
+        rewards = [0.0] * bsz
+        dones = [False] * bsz
+
+        conversation_tokenized_lst, conversations = [], []
+        for c_idx in range(client_start_idx, client_end_idx):
+            conversation = list(clients[c_idx].conversation_start)
+            conversation.append(
+                ConversationMessage({
+                    "from": "human",
+                    "loss": None,
+                    "value": states[c_idx - client_start_idx]
+                })
+            )
+            conversations.append(conversation)
+            conversation_tokenized = self._tokenize_conversation(conversation, tokenizer)
+            conversation_tokenized_lst.append(conversation_tokenized)
+        rounds = [0] * bsz
+
+        while True:
+            if sum(dones) == bsz:
+                break
+            # Setup the max len for current batch
+            max_len = -1
+            input_length_lst = []
+            for d_idx in range(len(dones)):
+                if dones[d_idx]:
+                    continue
+                input_length = len(conversation_tokenized_lst[d_idx]['input_ids'])
+                if input_length >= model.config.max_length:
+                    dones[d_idx] = True
+                    continue
+                input_length_lst.apppend(input_length)
+                max_len = max(max_len, input_length)
+            
+            # Check weather all trajectory are complete or not
+            if sum(dones) == bsz:
+                break
+            
+            # Prepare input tensors for batch run
+            all_input_ids = []
+            all_attn_masks = []
+            curr_lens = []
+            for d_idx in range(len(dones)):
+                if dones[d_idx]:
+                    continue
+                curr_len = len(conversation_tokenized_lst[d_idx]['input_ids'])
+                curr_lens.append(curr_len)
+                
+                try:
+                    conversation_tokenized_lst[d_idx]['input_ids'] = torch.cat([
+                        torch.IntTensor([tokenizer.pad_token_id] * (max_len - curr_len)), 
+                        torch.tensor(conversation_tokenized_lst[d_idx]['input_ids'])
+                    ]).to(model.device)
+                    attn_masks = torch.cat([
+                        torch.IntTensor([0] * (max_len - curr_len)),
+                        torch.ones(curr_len, dtype=torch.long)
+                    ]).to(model.device)
+                except:
+                    raise(f"ERROR on idx: {d_idx}, Shape: {torch.tensor(conversation_tokenized_lst[d_idx]['input_ids']).shape}")
+                
+                all_input_ids.append(conversation_tokenized_lst[d_idx]['input_ids'])
+                all_attn_masks.append(attn_masks)
+
+            # Stacking tensors as batch-wise
+            all_input_ids = torch.stack(all_input_ids)
+            all_attn_masks = torch.stack(all_attn_masks)
+
+            output = model.generate(
+                input_ids = all_input_ids,
+                attention_mask = all_attn_masks,
+                generation_config = generation_config,
+                eos_token_id = tokenizer.eos_token_id,
+                pad_token_id = tokenizer.pad_token_id
+            )
+
+            if isinstance(output, GenerateOutput):
+                output = output.sequences
+            
+            # Decode batch-generated tokens
+            ord = -1
+            all_generated_tokens = []
+            for d_idx in range(len(dones)):
+                if dones[d_idx]:
+                    continue
+                ord += 1
+                generated_tokens = output[ord][max_len:].cpu().numpy().tolist()
+                # <UNK> is padded if a model/tokenizer sets either unk_token or eos_token as pad_token.
+                if generated_tokens[-1] != tokenizer.unk_token_id and generated_tokens[-1] != tokenizer.eos_token_id:
+                    generated_tokens += [tokenizer.eos_token_id]
+                all_generated_tokens.append(generated_tokens)
+
+            all_generated_texts = tokenizer.batch_decode(all_generated_tokens)
+
+            # Adjust the max len for current batch
+            ord = -1
+            for d_idx in range(len(dones)):
+                if dones[d_idx]:
+                    continue
+                ord += 1
+                curr_len = curr_lens[ord]
+
+                # Handling special tokens (UNK, PAD)
+                all_generated_texts[ord] = all_generated_texts[ord].replace(tokenizer.unk_token, "").replace(tokenizer.pad_token, "")
+                valid_idxs = (np.array(all_generated_tokens[ord]) != tokenizer.unk_token_id) & (np.array(all_generated_tokens[ord]) != tokenizer.pad_token_id)
+                all_generated_tokens[ord] = np.array(all_generated_tokens[ord])[valid_idxs].tolist()
+
+                conversation_tokenized_lst[d_idx]['input_ids'] = conversation_tokenized_lst[d_idx]['input_ids'][-curr_len:].cpu().numpy().tolist()
+
+                # Add the very last EOS token at the end of the sequences
+                if tokenizer.eos_token_id == tokenizer.pad_token_id:
+                    all_generated_texts[ord] += tokenizer.eos_token
+                    all_generated_tokens[ord] += [tokenizer.eos_token_id]
+                
+                conversation_tokenized_lst[d_idx]["text"] += f" {all_generated_texts[ord]}"
+                conversation_tokenized_lst[d_idx]["input_ids"] += all_generated_tokens[ord]
+                conversation_tokenized_lst[d_idx]["action_mask"] += [1] * len(all_generated_tokens[ord])
+                # Drop the textified eos_token for upcoming generation
+                all_generated_texts[ord] = all_generated_texts[ord][:-len(tokenizer.eos_token)]
+                conversations[d_idx].append(
+                    ConversationMessage(
+                        {"from": "gpt", "loss": True, "value": all_generated_texts[ord]}
+                    )
+                )
+                # Step ENV
+                step_output = clients[client_start_idx + d_idx].step(all_generated_texts[ord])
+                state, reward, done = (
+                    step_output.state, 
+                    step_output.reward,
+                    step_output.done,
+                )
+                rewards[d_idx] = reward
+                dones[d_idx] = done
+                env_message = ConversationMessage(
+                    {"from": "human", "loss": None, "value": state}
+                )
+                env_message_tokenized = self._tokenize_conversation_one(env_message, tokenizer)
+                conversations[d_idx].append(env_message)
+                conversation_tokenized_lst[d_idx]["text"] += env_message_tokenized["text"]
+                conversation_tokenized_lst[d_idx]["input_ids"] += env_message_tokenized["input_ids"]
+                conversation_tokenized_lst[d_idx]["action_mask"] += env_message_tokenized["action_mask"]
+                rounds[d_idx] += 1
+
+                if max_rounds is not None and rounds[d_idx] >= max_rounds:
+                    dones[d_idx] = True
+
+        results = []
+        for d_idx in range(len(dones)):
+            results.append(ExperienceOutput(
+                conversation=conversations[d_idx],
+                reward=rewards[d_idx],
+                text=conversation_tokenized_lst[d_idx]["text"],
+                seq_ids=conversation_tokenized_lst[d_idx]["input_ids"],
+                attention_mask=[1] * len(conversation_tokenized_lst[d_idx]["input_ids"]),
+                action_mask=conversation_tokenized_lst[d_idx]["action_mask"]
+            ))
+        return results
+
     def _generate_experience_batch(
         self,
         model: PreTrainedModel,
@@ -198,17 +387,29 @@ class BaseTask:
         idxs: Sequence[int],
         generation_config: Optional[GenerationConfig] = None,
         max_rounds: Optional[int] = None,
+        accelerator = None,
     ) -> list[ExperienceOutput]:
-        # TODO: "Batch experience generation is not implemented. Generate one by one.",
-        client = self.clients[0]
-        result = [self._generate_experience_one(
-                    model=model,
-                    tokenizer=tokenizer,
-                    client=client,
-                    idx=idx,
-                    generation_config=generation_config,
-                    max_rounds=max_rounds,
-                ) for idx in idxs]
+        
+        if len(self.clients) == 1:
+            client = self.clients[0]
+            result = [self._generate_experience_one(
+                        model=model,
+                        tokenizer=tokenizer,
+                        client=client,
+                        idx=idx,
+                        generation_config=generation_config,
+                        max_rounds=max_rounds,
+                    ) for idx in idxs]
+        else:
+            result = self.impl_generate_experience_batch(
+                model = model,
+                tokenizer = tokenizer,
+                clients = self.clients,
+                idxs = idxs,
+                generation_config = generation_config,
+                max_rounds = max_rounds,
+                accelerator = accelerator
+            )
         return result
 
     def generate_experience(
